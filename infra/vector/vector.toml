@@ -70,25 +70,27 @@ auto_offset_reset = "earliest"
 type = "remap"
 inputs = ["logs_parsed", "metrics_enriched", "ml_output", "incidents", "actions"]
 source = '''
-# message (always make sure it's a string for Loki)
+# Ensure message is always a string for Loki
 if exists(.message) {
-  if is_string(.message) {
-    # keep as-is
-  } else {
+  if !is_string(.message) {
     .message = encode_json(.message)
   }
 } else {
   .message = encode_json(.)
 }
 
-# labels (only set defaults when missing)
-if !exists(.service) { .service = "unknown" }
-if !exists(.severity) { .severity = "info" }
+# Set default labels only when missing
+if !exists(.service) { 
+  .service = "unknown" 
+}
+if !exists(.severity) { 
+  .severity = "info" 
+}
+if !exists(.topic) { 
+  .topic = "unknown" 
+}
 
-# IMPORTANT: do NOT overwrite .topic.
-# With topic_key configured on Kafka sources, .topic will be "logs_parsed", "incidents", etc.
-if !exists(.topic) { .topic = "unknown" }
-
+# Add timestamp
 .timestamp = now()
 '''
 
