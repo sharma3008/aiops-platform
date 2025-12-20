@@ -1,0 +1,107 @@
+# =============================
+# VECTOR CONFIG: Kafka → Loki
+# =============================
+
+# ---------- KAFKA SOURCES (decorate events with topic/partition/offset) ----------
+
+[sources.logs_parsed]
+type = "kafka"
+bootstrap_servers = "kafka:9092"
+group_id = "vector-logs"
+topics = ["logs_parsed"]
+decoding.codec = "json"
+topic_key = "topic"
+partition_key = "partition"
+offset_key = "offset"
+headers_key = "headers"
+auto_offset_reset = "earliest"
+
+[sources.metrics_enriched]
+type = "kafka"
+bootstrap_servers = "kafka:9092"
+group_id = "vector-metrics"
+topics = ["metrics_enriched"]
+decoding.codec = "json"
+topic_key = "topic"
+partition_key = "partition"
+offset_key = "offset"
+headers_key = "headers"
+auto_offset_reset = "earliest"
+
+[sources.ml_output]
+type = "kafka"
+bootstrap_servers = "kafka:9092"
+group_id = "vector-ml"
+topics = ["ml_output"]
+decoding.codec = "json"
+topic_key = "topic"
+partition_key = "partition"
+offset_key = "offset"
+headers_key = "headers"
+auto_offset_reset = "earliest"
+
+[sources.incidents]
+type = "kafka"
+bootstrap_servers = "kafka:9092"
+group_id = "vector-incidents"
+topics = ["incidents"]
+decoding.codec = "json"
+topic_key = "topic"
+partition_key = "partition"
+offset_key = "offset"
+headers_key = "headers"
+auto_offset_reset = "earliest"
+
+[sources.actions]
+type = "kafka"
+bootstrap_servers = "kafka:9092"
+group_id = "vector-actions"
+topics = ["actions"]
+decoding.codec = "json"
+topic_key = "topic"
+partition_key = "partition"
+offset_key = "offset"
+headers_key = "headers"
+auto_offset_reset = "earliest"
+
+# ---------- TRANSFORM (SAFE VRL) ----------
+
+[transforms.normalize]
+type = "remap"
+inputs = ["logs_parsed", "metrics_enriched", "ml_output", "incidents", "actions"]
+source = '''
+# message (always make sure it's a string for Loki)
+if exists(.message) {
+  if is_string(.message) {
+    # keep as-is
+  } else {
+    .message = encode_json(.message)
+  }
+} else {
+  .message = encode_json(.)
+}
+
+# labels (only set defaults when missing)
+if !exists(.service) { .service = "unknown" }
+if !exists(.severity) { .severity = "info" }
+
+# IMPORTANT: do NOT overwrite .topic.
+# With topic_key configured on Kafka sources, .topic will be "logs_parsed", "incidents", etc.
+if !exists(.topic) { .topic = "unknown" }
+
+.timestamp = now()
+'''
+
+# ---------- LOKI SINK ----------
+
+[sinks.loki]
+type = "loki"
+inputs = ["normalize"]
+endpoint = "http://loki:3100"
+encoding.codec = "json"
+
+[sinks.loki.labels]
+source = "aiops"
+service = "{{ service }}"
+severity = "{{ severity }}"
+topic = "{{ topic }}"
