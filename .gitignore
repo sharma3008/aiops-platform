@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# OS / editor
+.DS_Store
+__MACOSX/
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Docker
+loki/data/

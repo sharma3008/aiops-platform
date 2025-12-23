@@ -80,18 +80,20 @@ if exists(.message) {
 }
 
 # Set default labels only when missing
-if !exists(.service) { 
-  .service = "unknown" 
-}
-if !exists(.severity) { 
-  .severity = "info" 
-}
-if !exists(.topic) { 
-  .topic = "unknown" 
-}
+if !exists(.service) { .service = "unknown" }
+if !exists(.severity) { .severity = "info" }
+if !exists(.topic) { .topic = "unknown" }
 
-# Add timestamp
-.timestamp = now()
+# Loki labels must be strings
+if exists(.service) && !is_string(.service) { .service = to_string(.service) ?? "unknown" }
+if exists(.severity) && !is_string(.severity) { .severity = to_string(.severity) ?? "info" }
+if exists(.topic) && !is_string(.topic) { .topic = to_string(.topic) ?? "unknown" }
+
+# Preserve event timestamp if present; otherwise add one.
+if !exists(.timestamp) { .timestamp = now() }
+
+# Always include ingestion timestamp for debugging.
+.ingested_at = now()
 '''
 
 # ---------- LOKI SINK ----------

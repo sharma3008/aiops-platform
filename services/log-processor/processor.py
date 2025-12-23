@@ -1,22 +1,24 @@
-# processor.py
+def normalize_log(log: dict) -> dict:
+    level = (log.get("level") or "INFO").upper()
 
-def normalize_log(log):
-    """
-    Takes a raw log dict and returns a normalized/enriched version.
-    """
-
-    level_map = {
-        "DEBUG": 1,
-        "INFO": 2,
-        "WARN": 3,
-        "ERROR": 4
+    severity_map = {
+        "DEBUG": "debug",
+        "INFO": "info",
+        "WARN": "warn",
+        "WARNING": "warn",
+        "ERROR": "error",
+        "CRITICAL": "critical",
+        "FATAL": "critical",
     }
+
+    service = log.get("service") or "unknown"
+    message = log.get("message") or ""
 
     return {
         "timestamp": log.get("timestamp"),
-        "service": log.get("service"),
-        "message": log.get("message"),
-        "severity": level_map.get(log.get("level"), 0),
+        "service": service,
+        "message": message,
+        "severity": severity_map.get(level, "info"),
         "trace_id": log.get("trace_id"),
-        "original_level": log.get("level"),
+        "original_level": level,
     }

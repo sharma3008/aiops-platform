@@ -1,6 +1,13 @@
 # AIOps Platform — Infrastructure Stack
 
-Complete local observability pipeline for AIOps demonstration using Kafka, Vector, Loki, and Grafana.
+Complete local observability pipeline for an AIOps demonstration using Kafka, Vector, Loki, and Grafana.
+
+This repository also includes containerized Python services for:
+- log generation -> log parsing
+- metrics generation -> enrichment
+- ML anomaly detection (IsolationForest)
+- incident classification
+- auto-remediation (intent emission)
 
 ## 🏗️ Architecture
 
@@ -42,11 +49,16 @@ aiops-platform/
 - `docker compose` CLI available
 - Optional: `jq` for JSON formatting
 
-### Start the Stack
+### Start the Full Stack (Infra + Services)
 
 ```bash
 cd aiops-platform/infra
 docker compose up -d
+```
+
+If you prefer to run the Python services on your host (outside Docker), set:
+```bash
+export KAFKA_BROKER=localhost:29092
 ```
 
 ### Verify Running Containers
