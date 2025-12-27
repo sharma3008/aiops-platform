@@ -24,7 +24,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "df7n4kybtn4lcb"
+        "uid": "loki"
       },
       "fieldConfig": {
         "defaults": {},
@@ -65,7 +65,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "df7n4kybtn4lcb"
+        "uid": "loki"
       },
       "fieldConfig": {
         "defaults": {
@@ -123,13 +123,13 @@
           "refId": "A"
         }
       ],
-      "title": "Incidents – Topic Only",
+      "title": "Incidents \u2013 Topic Only",
       "type": "stat"
     },
     {
       "datasource": {
         "type": "loki",
-        "uid": "df7n4kybtn4lcb"
+        "uid": "loki"
       },
       "fieldConfig": {
         "defaults": {
@@ -220,7 +220,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "df7n4kybtn4lcb"
+        "uid": "loki"
       },
       "fieldConfig": {
         "defaults": {
@@ -282,7 +282,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "df7n4kybtn4lcb"
+        "uid": "loki"
       },
       "fieldConfig": {
         "defaults": {
@@ -366,7 +366,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "df7n4kybtn4lcb"
+            "uid": "loki"
           },
           "direction": "backward",
           "editorMode": "code",
@@ -377,6 +377,168 @@
       ],
       "title": "Log Volume (per minute)",
       "type": "timeseries"
+    },
+    {
+      "id": 6,
+      "title": "Action Intents (per minute)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (service) (count_over_time({source=\"aiops\", topic=\"actions\"} |= \"\\\"event_type\\\": \\\"ACTION_INTENT\\\"\" [1m]))",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Action Results (per minute)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (service) (count_over_time({source=\"aiops\", topic=\"actions\"} |= \"\\\"event_type\\\": \\\"ACTION_RESULT\\\"\" [1m]))",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "title": "Action Decisions (rejected / skipped) (per minute)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum(count_over_time({source=\"aiops\", topic=\"actions\"} |= \"\\\"event_type\\\": \\\"ACTION_DECISION\\\"\" |= \"\\\"status\\\": \\\"REJECTED\\\"\" [1m]))",
+          "refId": "A",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum(count_over_time({source=\"aiops\", topic=\"actions\"} |= \"\\\"event_type\\\": \\\"ACTION_DECISION\\\"\" |= \"\\\"status\\\": \\\"SKIPPED_COOLDOWN\\\"\" [1m]))",
+          "refId": "B",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum(count_over_time({source=\"aiops\", topic=\"actions\"} |= \"\\\"event_type\\\": \\\"ACTION_DECISION\\\"\" |= \"\\\"status\\\": \\\"SKIPPED_DUPLICATE\\\"\" [1m]))",
+          "refId": "C",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "title": "Live Actions Stream",
+      "type": "logs",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 64
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{source=\"aiops\", topic=\"actions\"} | json",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showTime": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
     }
   ],
   "preload": false,
@@ -455,5 +617,5 @@
   "timezone": "browser",
   "title": "AIOps Logs & Incidents Dashboard",
   "uid": "addngkf",
-  "version": 20
+  "version": 21
 }

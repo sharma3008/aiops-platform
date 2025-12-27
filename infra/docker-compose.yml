@@ -6,158 +6,178 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     restart: unless-stopped
-
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     container_name: kafka
     depends_on:
-      - zookeeper
+    - zookeeper
     ports:
-      - "29092:29092"   # host access (Python running on your Mac)
+    - 29092:29092
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-
-      # Two listeners:
-      #  - PLAINTEXT for containers inside docker network (kafka:9092)
-      #  - PLAINTEXT_HOST for your host machine (localhost:29092)
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
     restart: unless-stopped
-
   loki:
     image: grafana/loki:2.9.0
     container_name: loki
     command: -config.file=/etc/loki/loki-config.yaml
     ports:
-      - "3100:3100"
+    - 3100:3100
     volumes:
-      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml
-      - ./loki/data:/loki
+    - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml
+    - ./loki/data:/loki
     restart: unless-stopped
-
   vector:
     image: timberio/vector:0.33.1-alpine
     container_name: vector
     depends_on:
-      - kafka
-      - loki
+    - kafka
+    - loki
     volumes:
-      - ./vector/vector.toml:/etc/vector/vector.toml
+    - ./vector/vector.toml:/etc/vector/vector.toml
     restart: unless-stopped
-
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
     ports:
-      - "3000:3000"
+    - 3000:3000
     depends_on:
-      - loki
+    - loki
     volumes:
-      - grafana-storage:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning
-      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    - grafana-storage:/var/lib/grafana
+    - ./grafana/provisioning:/etc/grafana/provisioning
+    - ./grafana/dashboards:/var/lib/grafana/dashboards
     restart: unless-stopped
-
-  # -----------------------------
-  # AIOps data plane services
-  # -----------------------------
-
   log-generator:
     build: ../services/log-generator
     container_name: log-generator
     depends_on:
-      - kafka
+    - kafka
     environment:
       KAFKA_BROKER: kafka:9092
       LOGS_RAW_TOPIC: logs_raw
-      LOG_INTERVAL_SEC: "1"
-      # FAILURE_MODE: auth_fail | db_slow | payment_timeout | cache_miss | error_burst
-      FAILURE_MODE: "none"
+      LOG_INTERVAL_SEC: '1'
+      FAILURE_MODE: none
     restart: unless-stopped
-
   log-processor:
     build: ../services/log-processor
     container_name: log-processor
     depends_on:
-      - kafka
+    - kafka
     environment:
       KAFKA_BROKER: kafka:9092
       LOGS_RAW_TOPIC: logs_raw
       LOGS_PARSED_TOPIC: logs_parsed
       AUTO_OFFSET_RESET: earliest
     restart: unless-stopped
-
   metrics-generator:
     build: ../services/metrics-generator
     container_name: metrics-generator
     depends_on:
-      - kafka
+    - kafka
     environment:
       KAFKA_BROKER: kafka:9092
       METRICS_RAW_TOPIC: metrics_raw
-      METRICS_INTERVAL_SEC: "2"
-      # FAILURE_MODE: cpu_spike | latency_spike | memory_spike
-      FAILURE_MODE: "none"
+      METRICS_INTERVAL_SEC: '2'
+      FAILURE_MODE: none
     restart: unless-stopped
-
   metrics-processor:
     build: ../services/metrics-processor
     container_name: metrics-processor
     depends_on:
-      - kafka
+    - kafka
     environment:
       KAFKA_BROKER: kafka:9092
       METRICS_RAW_TOPIC: metrics_raw
       METRICS_ENRICHED_TOPIC: metrics_enriched
       AUTO_OFFSET_RESET: earliest
     restart: unless-stopped
-
   ml-anomaly-detector:
     build: ../services/ml-anomaly-detector
     container_name: ml-anomaly-detector
     depends_on:
-      - kafka
+    - kafka
     environment:
       KAFKA_BROKER: kafka:9092
       ML_INPUT_TOPIC: metrics_enriched
       ML_OUTPUT_TOPIC: ml_output
       AUTO_OFFSET_RESET: earliest
     restart: unless-stopped
-
   incident-classifier:
     build: ../services/incident-classifier
     container_name: incident-classifier
     depends_on:
-      - kafka
+    - kafka
     environment:
       KAFKA_BROKER: kafka:9092
       LOGS_PARSED_TOPIC: logs_parsed
       ML_OUTPUT_TOPIC: ml_output
       INCIDENTS_TOPIC: incidents
       AUTO_OFFSET_RESET: latest
-      ERROR_BURST_WINDOW_SEC: "30"
-      ERROR_BURST_THRESHOLD: "8"
+      ERROR_BURST_WINDOW_SEC: '30'
+      ERROR_BURST_THRESHOLD: '8'
     restart: unless-stopped
-
   auto-remediator:
     build: ../services/auto-remediator
     container_name: auto-remediator
     depends_on:
-      - kafka
+    - kafka
     environment:
       KAFKA_BROKER: kafka:9092
       INCIDENTS_TOPIC: incidents
       ACTIONS_TOPIC: actions
       AUTO_OFFSET_RESET: latest
-      ACTION_DEDUP_WINDOW_SEC: "120"
+      ACTION_DEDUP_WINDOW_SEC: '120'
+      REMEDIATION_RULES_PATH: /app/rules/remediation_rules.yml
+      ACTION_ID_TTL_SEC: '600'
+      ACTION_COOLDOWN_SEC_DEFAULT: '180'
+      REQUIRE_APPROVAL: 'false'
+      # Hardening: emit policy decisions (reject/skip) into actions stream for observability
+      EMIT_DECISION_EVENTS: 'true'
+      EMIT_SKIP_EVENTS: 'true'
+      ENABLE_HEALTH_SERVER: 'true'
+      HEALTH_PORT: '8080'
     restart: unless-stopped
-
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz').read()"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    volumes:
+    - ../services/auto-remediator/rules:/app/rules:ro
+  action-executor:
+    build: ../services/action-executor
+    container_name: action-executor
+    depends_on:
+    - kafka
+    environment:
+      KAFKA_BROKER: kafka:9092
+      ACTIONS_TOPIC: actions
+      AUTO_OFFSET_RESET: latest
+      EXECUTION_MODE: log
+      REQUIRE_APPROVAL: 'false'
+      EXECUTED_DEDUP_TTL_SEC: '600'
+      PUBLISH_RESULTS: 'true'
+      ENABLE_HEALTH_SERVER: 'true'
+      HEALTH_PORT: '8080'
+    restart: unless-stopped
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz').read()"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
 volumes:
-  grafana-storage:
+  grafana-storage: {}

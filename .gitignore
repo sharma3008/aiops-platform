@@ -16,3 +16,11 @@ __MACOSX/
 
 # Docker
 loki/data/
+
+# macOS
+.DS_Store
+
+# Loki runtime data (generated)
+infra/loki/data/
+.DS_Store
+infra/loki/data/

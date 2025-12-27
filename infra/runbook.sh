@@ -5,9 +5,14 @@
 #
 # Usage:
 #   ./runbook.sh           # start + verify
-#   ./runbook.sh --reset   # destructive reset (removes volumes) + start + verify
+#   ./runbook.sh --reset           # destructive reset (removes volumes) + start + verify
+#   ./runbook.sh --phase4          # start + verify + Phase 4 remediation smoke test
+#   ./runbook.sh --reset --phase4  # reset + start + verify + Phase 4 smoke test
 #
 set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+cd "$SCRIPT_DIR"
 
 # -----------------------------
 # Colors
@@ -27,9 +32,14 @@ log_error()   { echo -e "${RED}✗${NC} $*"; }
 # Args
 # -----------------------------
 RESET=false
-if [[ "${1:-}" == "--reset" ]]; then
-  RESET=true
-fi
+PHASE4=false
+
+for arg in "$@"; do
+  case "$arg" in
+    --reset) RESET=true ;;
+    --phase4) PHASE4=true ;;
+  esac
+done
 
 # -----------------------------
 # Helpers
@@ -226,6 +236,13 @@ if ! loki_has_streams_for_aiops; then
 fi
 
 log_success "Loki has data for {source=\"aiops\"}"
+
+if $PHASE4; then
+  log_info "Running Phase 4 remediation smoke test (alias mapping + reject/audit events)..."
+  "${SCRIPT_DIR}/phase4_smoke.sh"
+  echo ""
+  log_success "Phase 4 smoke test passed"
+fi
 
 # Show a few entries if jq exists (best effort)
 if command -v jq >/dev/null 2>&1; then

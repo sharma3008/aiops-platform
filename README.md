@@ -352,3 +352,12 @@ If issues persist after troubleshooting:
 2. Check container status: `docker ps -a`
 3. Verify disk space: `docker system df`
 4. Review recent changes to config files
+
+## Phase 4 (Remediation)
+
+- `auto-remediator` consumes `incidents` and emits `ACTION_INTENT` events to `actions` using YAML rules (`services/auto-remediator/rules/remediation_rules.yml`).
+- `action-executor` consumes `actions` and logs execution (stub). It also publishes `ACTION_RESULT` events back to `actions` (ignored by itself).
+
+Environment knobs:
+- `REQUIRE_APPROVAL=true` on both services to stop execution until intents are marked approved.
+- Edit YAML rules for mapping incident types → actions and cooldowns.
