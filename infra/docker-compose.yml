@@ -138,21 +138,8 @@ services:
       REMEDIATION_RULES_PATH: /app/rules/remediation_rules.yml
       ACTION_ID_TTL_SEC: '600'
       ACTION_COOLDOWN_SEC_DEFAULT: '180'
-      REQUIRE_APPROVAL: 'false'
-      # Hardening: emit policy decisions (reject/skip) into actions stream for observability
-      EMIT_DECISION_EVENTS: 'true'
-      EMIT_SKIP_EVENTS: 'true'
-      ENABLE_HEALTH_SERVER: 'true'
-      HEALTH_PORT: '8080'
+      REQUIRE_APPROVAL: "${REQUIRE_APPROVAL:-false}"
     restart: unless-stopped
-    healthcheck:
-      test:
-      - CMD-SHELL
-      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz').read()"
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 15s
     volumes:
     - ../services/auto-remediator/rules:/app/rules:ro
   action-executor:
@@ -165,19 +152,9 @@ services:
       ACTIONS_TOPIC: actions
       AUTO_OFFSET_RESET: latest
       EXECUTION_MODE: log
-      REQUIRE_APPROVAL: 'false'
+      REQUIRE_APPROVAL: "${REQUIRE_APPROVAL:-false}"
       EXECUTED_DEDUP_TTL_SEC: '600'
       PUBLISH_RESULTS: 'true'
-      ENABLE_HEALTH_SERVER: 'true'
-      HEALTH_PORT: '8080'
     restart: unless-stopped
-    healthcheck:
-      test:
-      - CMD-SHELL
-      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz').read()"
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 15s
 volumes:
   grafana-storage: {}

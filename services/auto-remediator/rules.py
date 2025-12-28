@@ -1,56 +1,31 @@
-"""
-Auto-remediator rules engine (Phase 4).
-
-YAML-driven to support:
-- deterministic, reviewable remediation behavior
-- cooldowns and basic policy guards
-- service alias normalization
-
-Default YAML path: /app/rules/remediation_rules.yml
-Override with env var: REMEDIATION_RULES_PATH
-"""
-
 from __future__ import annotations
 
 import fnmatch
-import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import yaml
 
+
 _SEVERITY_ORDER = {"info": 0, "warn": 1, "warning": 1, "error": 2, "critical": 3}
-_LOG = logging.getLogger("auto_remediator.rules")
-
-
-def _sev_rank(sev: Any) -> int:
-    if not isinstance(sev, str):
-        return _SEVERITY_ORDER["warn"]
-    return _SEVERITY_ORDER.get(sev.lower(), _SEVERITY_ORDER["warn"])
 
 
 @dataclass(frozen=True)
 class Rule:
     rule_id: str
-    enabled: bool
-    match_incident_type: str
-    match_service: str
+    incident_type: str
     min_severity: str
+    pattern: str
     action_type: str
-    target_service_tpl: str
+    target_service: str
     parameters: Dict[str, Any]
-    severity: str
     cooldown_sec: int
 
 
-class _SafeDict(dict):
-    def __missing__(self, key: str) -> str:
-        # Leave unknown placeholders intact rather than crashing
-        return "{" + key + "}"
-
-
 def _load_yaml(path: str) -> Dict[str, Any]:
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Rules file not found: {path}")
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
@@ -74,201 +49,148 @@ def _parse_rules(cfg: Dict[str, Any]) -> Tuple[List[Rule], Dict[str, Any], Dict[
     for r in rules_raw:
         if not isinstance(r, dict):
             continue
-        rule_id = str(r.get("rule_id") or "").strip()
-        if not rule_id:
-            continue
 
-        enabled = bool(r.get("enabled", defaults.get("enabled", True)))
-        match = r.get("match") or {}
-        action = r.get("action") or {}
+        rule_id = str(r.get("rule_id", "")).strip()
+        incident_type = str(r.get("incident_type", "")).strip()
+        min_severity = str(r.get("min_severity", defaults.get("severity", "warn"))).strip()
+        pattern = str(r.get("pattern", "*")).strip()
+        action_type = str(r.get("action_type", "")).strip()
+        target_service = str(r.get("target_service", "{service}")).strip()
+        parameters = r.get("parameters") or {}
+        cooldown_sec = int(r.get("cooldown_sec", defaults.get("cooldown_sec", 180)))
+
+        if not rule_id or not incident_type or not action_type:
+            continue
 
         parsed.append(
             Rule(
                 rule_id=rule_id,
-                enabled=enabled,
-                match_incident_type=str(match.get("incident_type") or "").strip(),
-                match_service=str(match.get("service") or "*").strip(),
-                min_severity=str(match.get("min_severity") or defaults.get("severity") or "warn"),
-                action_type=str(action.get("action_type") or "").strip(),
-                target_service_tpl=str(action.get("target_service") or "{service}"),
-                parameters=action.get("parameters") or {},
-                severity=str(r.get("severity") or defaults.get("severity") or "warn"),
-                cooldown_sec=int(r.get("cooldown_sec") or defaults.get("cooldown_sec") or 180),
+                incident_type=incident_type,
+                min_severity=min_severity,
+                pattern=pattern,
+                action_type=action_type,
+                target_service=target_service,
+                parameters=dict(parameters),
+                cooldown_sec=cooldown_sec,
             )
         )
 
     return parsed, defaults, policy, aliases
 
 
-def _normalize_list(values: Any, *, lower: bool = True) -> List[str]:
-    if not isinstance(values, list):
-        return []
-    out: List[str] = []
-    for v in values:
-        s = str(v).strip()
-        if not s:
-            continue
-        out.append(s.lower() if lower else s)
-    return out
+def _severity_ok(incident_sev: str, min_sev: str) -> bool:
+    i = _SEVERITY_ORDER.get(str(incident_sev).lower(), 0)
+    m = _SEVERITY_ORDER.get(str(min_sev).lower(), 0)
+    return i >= m
 
 
-def _normalize_action_list(values: Any) -> List[str]:
-    if not isinstance(values, list):
-        return []
-    out: List[str] = []
-    for v in values:
-        s = str(v).strip()
-        if not s:
-            continue
-        out.append(s.upper())
-    return out
+def _pattern_ok(service: str, pattern: str) -> bool:
+    return fnmatch.fnmatch(service, pattern)
 
 
-def _policy_allows_reason(policy: Dict[str, Any], action_type: str, target_service: str) -> Optional[str]:
-    """Return None if allowed; otherwise reject reason string."""
-    deny = _normalize_list(policy.get("denylist_services"), lower=True)
-    allow = _normalize_list(policy.get("allowlist_services"), lower=True)
-    allow_actions = _normalize_action_list(policy.get("allowlist_action_types"))
-
-    ts = str(target_service).strip().lower() if target_service else "unknown"
-    at = str(action_type).strip().upper() if action_type else ""
-
-    if deny and ts in deny:
-        return "denylist_service"
-    if allow and ts not in allow:
-        return "not_in_allowlist"
-    if allow_actions and at not in allow_actions:
-        return "action_type_not_allowed"
-    return None
-
-
-class _LazyConfig:
-    def __init__(self) -> None:
-        self._loaded_path: Optional[str] = None
-        self.rules: List[Rule] = []
-        self.policy: Dict[str, Any] = {}
-        self.defaults: Dict[str, Any] = {}
-        self.service_aliases: Dict[str, str] = {}
-
-    def load(self, path: str) -> None:
-        cfg = _load_yaml(path)
-        self.rules, self.defaults, self.policy, self.service_aliases = _parse_rules(cfg)
-        self._loaded_path = path
-
-
-_CFG = _LazyConfig()
-
-
-def get_rules_path() -> str:
-    return os.getenv("REMEDIATION_RULES_PATH", "/app/rules/remediation_rules.yml")
-
-
-def _ensure_loaded() -> None:
-    path = get_rules_path()
-    if _CFG._loaded_path != path:
-        _CFG.load(path)
-        _LOG.info("Loaded remediation rules: path=%s rules=%d", path, len(_CFG.rules))
-
-
-def canonicalize_service(service: Any) -> str:
-    _ensure_loaded()
-    raw = str(service or "").strip()
-    if not raw:
-        return "unknown"
-    key = raw.lower()
-    return _CFG.service_aliases.get(key, key)
+def _canon_service(s: Any) -> str:
+    return str(s).strip().lower() if s is not None else ""
 
 
 def canonicalize_incident(incident: Dict[str, Any]) -> Dict[str, Any]:
-    """Shallow copy + canonicalize incident['service'].
+    inc = dict(incident or {})
 
-    Adds:
-      _service_alias_raw, _service_alias_canonical when alias mapping occurs.
-    """
-    raw_service = incident.get("service")
-    canon = canonicalize_service(raw_service)
+    raw_service = _canon_service(inc.get("service"))
+    raw_sev = _canon_service(inc.get("severity"))
+    if raw_sev == "warning":
+        raw_sev = "warn"
 
-    # If unchanged (including same string), return as-is.
-    if str(raw_service or "").strip().lower() == canon:
-        out = dict(incident)
-        out["service"] = canon  # enforce lowercase canonical even if case differed
-        return out
+    cfg_path = os.getenv("REMEDIATION_RULES_PATH", "/app/rules/remediation_rules.yml")
+    cfg = _load_yaml(cfg_path)
+    _, _, _, aliases = _parse_rules(cfg)
 
-    out = dict(incident)
-    out["_service_alias_raw"] = raw_service
-    out["_service_alias_canonical"] = canon
-    out["service"] = canon
-    return out
+    canonical_service = aliases.get(raw_service, raw_service) if raw_service else raw_service
+    if raw_service and canonical_service and raw_service != canonical_service:
+        inc["_service_alias_raw"] = raw_service
+        inc["_service_alias_canonical"] = canonical_service
+
+    if canonical_service:
+        inc["service"] = canonical_service
+    if raw_sev:
+        inc["severity"] = raw_sev
+
+    # Normalize other possible fields if they exist
+    for key in ("target_service", "target", "service_name"):
+        if key in inc and isinstance(inc.get(key), str):
+            t_raw = _canon_service(inc.get(key))
+            t_can = aliases.get(t_raw, t_raw) if t_raw else t_raw
+            inc[key] = t_can
+
+    return inc
 
 
-def evaluate_rules_with_diagnostics(incident: dict) -> Tuple[List[dict], Dict[str, Any]]:
-    _ensure_loaded()
+def _policy_allows(target_service: str, action_type: str, policy: Dict[str, Any]) -> Tuple[bool, str]:
+    allowlist = [str(x).strip().lower() for x in (policy.get("allowlist_services") or []) if str(x).strip()]
+    denylist = [str(x).strip().lower() for x in (policy.get("denylist_services") or []) if str(x).strip()]
+    allowed_actions = [str(x).strip() for x in (policy.get("allowlist_action_types") or []) if str(x).strip()]
 
-    incident_type = str(incident.get("incident_type") or incident.get("type") or "").strip()
-    raw_service = incident.get("service") or "unknown"
-    service = canonicalize_service(raw_service)
-    sev = incident.get("severity") or "warn"
-    sev_rank = _sev_rank(sev)
+    ts = _canon_service(target_service)
+
+    if ts in denylist:
+        return False, "denylist_service"
+    if allowlist and ts not in allowlist:
+        return False, "not_in_allowlist"
+    if allowed_actions and str(action_type).strip() not in allowed_actions:
+        return False, "action_type_not_allowed"
+    return True, "allowed"
+
+
+def evaluate_rules_with_diagnostics(incident: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    cfg_path = os.getenv("REMEDIATION_RULES_PATH", "/app/rules/remediation_rules.yml")
+    cfg = _load_yaml(cfg_path)
+    rules, defaults, policy, _aliases = _parse_rules(cfg)
+
+    service = str(incident.get("service", "unknown"))
+    sev = str(incident.get("severity", defaults.get("severity", "warn")))
+    incident_type = str(incident.get("incident_type", "")).strip()
 
     actions: List[Dict[str, Any]] = []
+    matched_candidates: List[Dict[str, Any]] = []
     policy_rejects: List[Dict[str, Any]] = []
 
-    ctx = _SafeDict(dict(incident))
-    ctx["service"] = service
-    ctx.setdefault("incident_type", incident_type)
-
-    matched_candidates = 0
-
-    for rule in _CFG.rules:
-        if not rule.enabled:
+    for rule in rules:
+        if rule.incident_type and rule.incident_type != incident_type:
             continue
-        if rule.match_incident_type and rule.match_incident_type != incident_type:
+        if not _severity_ok(sev, rule.min_severity):
             continue
-        if rule.match_service and not fnmatch.fnmatch(service, rule.match_service):
-            continue
-        if sev_rank < _sev_rank(rule.min_severity):
-            continue
-        if not rule.action_type:
+        if rule.pattern and not _pattern_ok(service, rule.pattern):
             continue
 
-        matched_candidates += 1
+        # IMPORTANT: render target BEFORE policy checks/diagnostics
+        raw_target = rule.target_service or "{service}"
+        try:
+            target = raw_target.format(service=service)
+        except Exception:
+            target = service
 
-        target_raw = rule.target_service_tpl.format_map(ctx) if rule.target_service_tpl else service
-        target_service = canonicalize_service(target_raw) if target_raw else service
+        matched_candidates.append(
+            {"rule_id": rule.rule_id, "action_type": rule.action_type, "target_service": target}
+        )
 
-        reject_reason = _policy_allows_reason(_CFG.policy, rule.action_type, target_service)
-        if reject_reason is not None:
+        ok, reason = _policy_allows(target, rule.action_type, policy)
+        if not ok:
             policy_rejects.append(
-                {
-                    "rule_id": rule.rule_id,
-                    "action_type": str(rule.action_type).upper(),
-                    "target_service": target_service,
-                    "reason": reject_reason,
-                }
+                {"rule_id": rule.rule_id, "action_type": rule.action_type, "target_service": target, "reason": reason}
             )
             continue
 
         actions.append(
             {
                 "rule_id": rule.rule_id,
-                "action_type": str(rule.action_type).upper(),
-                "target_service": target_service,
-                "parameters": rule.parameters or {},
-                "severity": rule.severity or "warn",
-                "cooldown_sec": rule.cooldown_sec,
+                "action_type": rule.action_type,
+                "target_service": target,
+                "parameters": dict(rule.parameters or {}),
+                "cooldown_sec": int(rule.cooldown_sec),
             }
         )
 
-    diag: Dict[str, Any] = {
-        "service_raw": str(raw_service),
-        "service": service,
-        "incident_type": incident_type,
+    diag = {
         "matched_candidates": matched_candidates,
         "policy_rejects": policy_rejects,
     }
     return actions, diag
-
-
-def evaluate_rules(incident: dict) -> list[dict]:
-    actions, _ = evaluate_rules_with_diagnostics(incident)
-    return actions

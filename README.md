@@ -1,27 +1,53 @@
-# AIOps Platform — Infrastructure Stack
+# AIOps Platform — Infrastructure & Observability Stack
 
-Complete local observability pipeline for an AIOps demonstration using Kafka, Vector, Loki, and Grafana.
+A **production-style local infrastructure stack** for demonstrating an end-to-end **AIOps platform**, including observability, ML-driven anomaly detection, incident classification, and automated remediation workflows.
 
-This repository also includes containerized Python services for:
-- log generation -> log parsing
-- metrics generation -> enrichment
-- ML anomaly detection (IsolationForest)
-- incident classification
-- auto-remediation (intent emission)
+This repository focuses on the **infra + observability layer**, while also running containerized AIOps services on top of Kafka.
 
-## 🏗️ Architecture
+---
+
+## ✨ What This Repo Provides
+
+- Full local **observability pipeline** using Kafka, Vector, Loki, and Grafana
+- Event-driven backbone for logs, metrics, incidents, ML outputs, and actions
+- Containerized Python services for the complete AIOps lifecycle
+- Deterministic **runbook** to validate the entire system end-to-end
+- Grafana dashboards (UI + Git-provisioned) for demos and interviews
+
+This setup mirrors how **real AIOps platforms** are built and tested.
+
+---
+
+## AIOps Capabilities Included
+
+Containerized Python services implement:
+
+- Log generation → parsing
+- Metrics generation → enrichment
+- ML anomaly detection (Isolation Forest)
+- Incident classification (error bursts, anomaly signals)
+- Policy-based auto-remediation (intent emission + approvals)
+
+Kafka topics act as **contracts** between all services.
+
+---
+
+## High-Level Architecture
 
 ```
-Kafka Topics → Vector (VRL normalize) → Loki → Grafana Dashboards
+Kafka Topics → Vector (VRL normalization) → Loki → Grafana Dashboards
 ```
 
-**Components:**
-- **Kafka**: Event bus for logs, incidents, metrics, ML outputs, and actions
-- **Vector**: Consumes Kafka JSON messages, normalizes fields, ships to Loki
-- **Loki**: Log aggregation system with label-based indexing
-- **Grafana**: Visualization dashboards and panels
+### Core Components
 
-## 📁 Repository Structure
+- **Kafka** – Event bus for logs, metrics, incidents, ML outputs, and actions  
+- **Vector** – Consumes Kafka JSON events, normalizes fields, ships to Loki  
+- **Loki** – Label-indexed log storage  
+- **Grafana** – Dashboards for observability and AIOps decision visibility  
+
+---
+
+## Repository Structure
 
 ```
 aiops-platform/
@@ -30,51 +56,63 @@ aiops-platform/
     ├── runbook.sh                    # Automated startup & verification
     ├── loki/
     │   ├── loki-config.yaml
-    │   └── data/                     # Persisted Loki data (bind mount)
+    │   └── data/                     # Persisted Loki data
     ├── vector/
-    │   └── vector.toml               # Kafka sources + VRL transforms + Loki sink
+    │   └── vector.toml               # Kafka → VRL → Loki pipeline
     └── grafana/
         ├── provisioning/
         │   ├── datasources/
-        │   │   └── datasources.yaml  # Loki datasource config
+        │   │   └── datasources.yaml  # Loki datasource
         │   └── dashboards/
-        │       └── dashboards.yaml   # Dashboard provider config
-        └── dashboards/               # Exported dashboard JSON files
+        │       └── dashboards.yaml   # Dashboard provider
+        └── dashboards/               # Versioned dashboard JSON files
 ```
 
+---
 
-### Prerequisites
+##  Prerequisites
 
 - Docker Desktop (running)
-- `docker compose` CLI available
-- Optional: `jq` for JSON formatting
+- `docker compose` CLI
+- Optional: `jq` for JSON inspection
 
-### Start the Full Stack (Infra + Services)
+---
+
+##  Start the Full Stack
 
 ```bash
 cd aiops-platform/infra
 docker compose up -d
 ```
 
-If you prefer to run the Python services on your host (outside Docker), set:
+### Run services outside Docker (optional)
+
 ```bash
 export KAFKA_BROKER=localhost:29092
 ```
 
-### Verify Running Containers
+---
+
+##  Verify Containers
 
 ```bash
-docker ps --format "table {{.Names}}\t{{.Status}}" | egrep "zookeeper|kafka|loki|vector|grafana"
+docker ps --format "table {{.Names}}\t{{.Status}}" \
+  | egrep "zookeeper|kafka|loki|vector|grafana"
 ```
 
-### Access Services
+---
 
-- **Grafana**: http://localhost:3000 (default: admin/admin)
+##  Access Services
+
+- **Grafana**: http://localhost:3000  
+  - Default login: `admin / admin`
 - **Loki API**: http://localhost:3100
 
-## Smoke Test (End-to-End Verification)
+---
 
-### 1. Produce Test Message to Kafka
+## Smoke Test (End-to-End)
+
+### Produce a Test Log
 
 ```bash
 printf '%s\n' '{"message":"demo test","service":"payments","severity":"error"}' \
@@ -83,82 +121,73 @@ printf '%s\n' '{"message":"demo test","service":"payments","severity":"error"}' 
       --topic logs_parsed
 ```
 
-### 2. Verify Loki Labels
+### Verify Loki Labels
 
 ```bash
 curl -s http://localhost:3100/loki/api/v1/labels | jq
-curl -sG http://localhost:3100/loki/api/v1/label/source/values | jq
+curl -s http://localhost:3100/loki/api/v1/label/source/values | jq
 ```
 
 Expected labels:
-- `source` (should include "aiops")
+- `source=aiops`
 - `service`
 - `severity`
 - `topic`
 
-### 3. Query Recent Logs
+###  Query Recent Logs
 
 ```bash
 start="$(($(date +%s)-300))000000000"
 end="$(date +%s)000000000"
 
-curl -sG "http://localhost:3100/loki/api/v1/query_range" \
+curl -sG http://localhost:3100/loki/api/v1/query_range \
   --data-urlencode 'query={source="aiops"}' \
   --data-urlencode "start=${start}" \
   --data-urlencode "end=${end}" \
   --data-urlencode "limit=20" | jq
 ```
 
-## Grafana Dashboards
+---
 
-### Included Dashboards
+##  Grafana Dashboards
 
-1. **Errors by Service** - Service-level error breakdown
-2. **Incidents Topic Only** - Incident stream monitoring
-3. **Live Error Logs** - Real-time error log viewer
-4. **Log Severity Distribution** - Severity level analytics
-5. **Log Volume (per minute)** - Traffic patterns
+### Included Panels
 
-### Dashboard Persistence
+- Live Error Logs
+- Errors by Service
+- Incidents Feed (Kafka incidents topic)
+- Log Severity Distribution
+- Log Volume (per minute)
 
-**Grafana Password:**
-- Stored in Docker volume `grafana-storage:/var/lib/grafana`
-- Persists across restarts (unless volume is deleted with `-v` flag)
+These form the **Operations Overview**.
 
-**Dashboard Storage:**
+Additional dashboards can visualize:
+- ML anomalies
+- Action intents (APPROVED / PROPOSED / DENIED)
+- Pending approvals
+- Action execution results
 
-| Type | Location | Persistence |
-|------|----------|-------------|
-| UI-created | `grafana-storage` volume | Survives restarts & `docker compose down` |
-| Git-provisioned | `infra/grafana/dashboards/*.json` | Version-controlled, auto-loaded on startup |
+---
 
-**Recommendation:** Use Git provisioning for repeatable demos across machines.
+## Dashboard Persistence
 
-### Exporting Dashboards to Git
+| Dashboard Type | Storage | Persistence |
+|---|---|---|
+| UI-created | `grafana-storage` volume | Survives restarts |
+| Git-provisioned | `infra/grafana/dashboards/*.json` | Version controlled |
 
-**Option A: JSON Model (Recommended)**
+### Export Dashboards to Git
 
-1. Open dashboard in Grafana
-2. Click gear icon (⚙️ Dashboard settings)
-3. Select **JSON Model** tab
-4. Click **Save JSON to file**
-5. Save to `infra/grafana/dashboards/<dashboard-name>.json`
+**Recommended method**
+1. Dashboard → ⚙️ Settings → **JSON Model**
+2. Save to `infra/grafana/dashboards/`
+3. Restart Grafana
 
-**Option B: Share → Export**
+---
 
-1. Open dashboard
-2. Click **Share** button
-3. Go to **Export** tab
-4. **Save to file**
-5. Place in `infra/grafana/dashboards/`
+## Runbook (Recommended)
 
-
-
-## 🔄 Bring-It-Back Runbook
-
-Use this after laptop restarts, Docker downtime, or 4-5 days of inactivity.
-
-### Automated Method (Recommended)
+Use this after restarts or extended downtime.
 
 ```bash
 cd aiops-platform/infra
@@ -166,198 +195,93 @@ chmod +x runbook.sh
 ./runbook.sh
 ```
 
-The script will:
-- Start all containers
-- Wait for Loki readiness
-- Verify Vector is running
-- Push test message to Kafka
-- Query Loki to confirm data flow
-- Display service URLs
+The runbook:
+- Starts all services
+- Waits for Loki readiness
+- Verifies Vector ingestion
+- Pushes test events
+- Confirms Loki queries succeed
+- Validates the AIOps pipeline
 
-### Manual Method
+---
 
-```bash
-cd aiops-platform/infra
-docker compose up -d
-docker ps --format "table {{.Names}}\t{{.Status}}" | egrep "zookeeper|kafka|loki|vector|grafana"
+##  Stopping Services
 
-# Then run smoke test (see above)
-```
-
-## Stopping Services
-
-### Pause (Keeps State)
+### Pause (keep state)
 
 ```bash
 docker compose stop
 ```
 
-Resume with: `docker compose start` or `./runbook.sh`
-
-### Remove Containers (Keeps Volumes)
+### Remove containers (keep data)
 
 ```bash
 docker compose down
 ```
 
-### Complete Wipe (Including Data)
-
- **Warning:** Deletes Grafana password and all stored dashboards
+### Full reset (⚠ deletes dashboards & Grafana DB)
 
 ```bash
 docker compose down -v
 ```
 
-## Troubleshooting
+---
 
-### Grafana Shows "No Data"
+##  Loki Label Schema
 
-**Checklist:**
+Vector attaches:
 
-1. **Verify Vector is running:**
-   ```bash
-   docker ps | grep vector
-   ```
+- `source="aiops"`
+- `service`
+- `severity`
+- `topic`
 
-2. **Check Vector logs if exited:**
-   ```bash
-   docker logs vector --tail 200
-   ```
-
-3. **Test Loki directly:**
-   - Set Grafana time range to "Last 1 hour"
-   - Run manual Loki query (see Smoke Test #3)
-
-### Loki Has Labels But No Streams
-
-**Cause:** Loki is healthy but hasn't received recent data.
-
-**Fix:**
-1. Produce new test message to Kafka (see Smoke Test #1)
-2. Verify Vector is running and configured correctly
-3. Check Vector logs for connection issues
-
-### Vector Exits with Code 78
-
-**Cause:** Configuration syntax error (usually VRL)
-
-**Fix:**
-```bash
-# Check logs
-docker logs vector --tail 200
-
-# Fix infra/vector/vector.toml
-# Then restart
-docker compose up -d vector
-```
-
-### Kafka JSON Decode Errors
-
-**Cause:** Vector expects valid JSON (configured with `decoding.codec = "json"`)
-
-**Fix:** Ensure all messages are valid JSON:
-```bash
-# Correct format
-printf '%s\n' '{"message":"test","service":"api","severity":"info"}' \
-  | docker exec -i kafka kafka-console-producer \
-      --bootstrap-server kafka:9092 \
-      --topic logs_parsed
-```
-
-### Vector Can't Reach Loki
-
-**Symptoms:**
-- Vector logs show connection errors
-- Loki queries return empty results
-- Vector container restarts frequently
-
-**Fix:**
-```bash
-# Check Loki is ready
-curl http://localhost:3100/ready
-
-# Verify network connectivity
-docker network inspect infra_default
-
-# Restart Vector
-docker compose restart vector
-```
-
-## 📋 Loki Label Schema
-
-Vector attaches these labels (configured in `vector.toml`):
-
-- `source="aiops"` - Constant label for demo
-- `service` - Service name from message
-- `severity` - Log severity level
-- `topic` - Source Kafka topic
-
-**Query Pattern:**
-```
+**Example queries**
+```logql
 {source="aiops"}
 {source="aiops", service="payments"}
 {source="aiops", severity="error"}
 ```
 
-## 🐳 Docker Compose Services
+---
+
+##  Docker Services
 
 ```yaml
-services:
-  zookeeper       # Kafka coordination
-  kafka           # Message broker (port 9092)
-  loki            # Log aggregation (port 3100)
-  vector          # Log pipeline processor
-  grafana         # Visualization (port 3000)
-
-volumes:
-  grafana-storage # Persists Grafana DB, dashboards, settings
+zookeeper   # Kafka coordination
+kafka       # Event bus
+vector      # Log processing pipeline
+loki        # Log aggregation
+grafana     # Visualization
 ```
 
-## Configuration Files
+---
 
-### Loki Config
-- **Location:** `infra/loki/loki-config.yaml`
-- **Data:** `infra/loki/data/` (bind mount)
+##  Troubleshooting (Quick)
 
-### Vector Config
-- **Location:** `infra/vector/vector.toml`
-- **Sources:** Kafka topics
-- **Transforms:** VRL normalization
-- **Sink:** Loki HTTP endpoint
+- **Grafana shows no data** → Check time range + Vector logs  
+- **Vector exits (code 78)** → VRL syntax error  
+- **Loki labels but no streams** → Produce new test log  
+- **Kafka decode errors** → Ensure valid JSON  
 
-### Grafana Provisioning
-- **Datasource:** `infra/grafana/provisioning/datasources/datasources.yaml`
-- **Dashboards:** `infra/grafana/provisioning/dashboards/dashboards.yaml`
-- **Dashboard Files:** `infra/grafana/dashboards/*.json`
+```bash
+docker logs vector --tail 200
+docker logs loki --tail 200
+```
 
-## Tips
+---
 
-- **Kafka Topics:** Auto-created on first use (logs_parsed, incidents, metrics_enriched, ml_output, actions)
-- **Time Zones:** Use Grafana's time range picker; Loki stores nanosecond timestamps
-- **Performance:** For high volume, adjust Loki retention settings in `loki-config.yaml`
-- **Debugging:** Use `docker logs <container>` for all troubleshooting
-- **Fresh Start:** Run `./runbook.sh` after any extended downtime
+## Why This Matters
 
-## 🔗 Useful Links
+This repo demonstrates:
+- Event-driven infrastructure design
+- Observability pipelines used in production
+- AIOps-ready data contracts
+- Safe, repeatable demo environments
 
-- [Loki Documentation](https://grafana.com/docs/loki/latest/)
-- [Vector Documentation](https://vector.dev/docs/)
-- [Kafka Documentation](https://kafka.apache.org/documentation/)
-- [Grafana Provisioning](https://grafana.com/docs/grafana/latest/administration/provisioning/)
+It is designed for **learning, demos, interviews, and further production hardening**.
 
-##  Support
+---
 
-If issues persist after troubleshooting:
-1. Collect logs: `docker logs <service> > <service>.log`
-2. Check container status: `docker ps -a`
-3. Verify disk space: `docker system df`
-4. Review recent changes to config files
-
-## Phase 4 (Remediation)
-
-- `auto-remediator` consumes `incidents` and emits `ACTION_INTENT` events to `actions` using YAML rules (`services/auto-remediator/rules/remediation_rules.yml`).
-- `action-executor` consumes `actions` and logs execution (stub). It also publishes `ACTION_RESULT` events back to `actions` (ignored by itself).
-
-Environment knobs:
-- `REQUIRE_APPROVAL=true` on both services to stop execution until intents are marked approved.
-- Edit YAML rules for mapping incident types → actions and cooldowns.
+## ⭐ Tip for Reviewers
+Run `./runbook.sh`, open Grafana, and watch the entire AIOps lifecycle in real time.

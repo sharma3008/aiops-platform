@@ -1,7 +1,5 @@
-version: 1
-
 defaults:
-  enabled: true
+  source: auto_remediator
   severity: warn
   cooldown_sec: 180
 
@@ -16,8 +14,7 @@ service_aliases:
 
 # Optional policy guards
 policy:
-  # Only allow remediation for the core demo services.
-  # If you want to include other services, add them here.
+  # Only allow remediation for the core demo services
   allowlist_services:
     - payments
     - auth
@@ -35,51 +32,43 @@ policy:
 
 rules:
   - rule_id: cpu_spike_scale_up
-    match:
-      incident_type: CPU_SPIKE
-      service: "*"
-      min_severity: warn
-    action:
-      action_type: SCALE_UP
-      target_service: "{service}"
-      parameters:
-        replicas_delta: 1
-        reason: "cpu spike"
+    incident_type: CPU_SPIKE
+    min_severity: warn
+    pattern: "*"
+    action_type: SCALE_UP
+    target_service: "{service}"
+    parameters:
+      replicas_delta: 1
+      reason: "cpu spike"
     cooldown_sec: 120
 
   - rule_id: latency_spike_scale_up
-    match:
-      incident_type: LATENCY_SPIKE
-      service: "*"
-      min_severity: warn
-    action:
-      action_type: SCALE_UP
-      target_service: "{service}"
-      parameters:
-        replicas_delta: 1
-        reason: "latency spike"
+    incident_type: LATENCY_SPIKE
+    min_severity: warn
+    pattern: "*"
+    action_type: SCALE_UP
+    target_service: "{service}"
+    parameters:
+      replicas_delta: 1
+      reason: "latency spike"
     cooldown_sec: 120
 
   - rule_id: error_rate_rolling_restart
-    match:
-      incident_type: ERROR_RATE_SPIKE
-      service: "*"
-      min_severity: error
-    action:
-      action_type: ROLLING_RESTART
-      target_service: "{service}"
-      parameters:
-        reason: "error rate spike"
-    cooldown_sec: 300
+    incident_type: ERROR_RATE_SPIKE
+    min_severity: error
+    pattern: "*"
+    action_type: ROLLING_RESTART
+    target_service: "{service}"
+    parameters:
+      reason: "error rate spike"
+    cooldown_sec: 180
 
   - rule_id: memory_spike_restart
-    match:
-      incident_type: MEMORY_SPIKE
-      service: "*"
-      min_severity: warn
-    action:
-      action_type: ROLLING_RESTART
-      target_service: "{service}"
-      parameters:
-        reason: "memory spike"
+    incident_type: MEMORY_SPIKE
+    min_severity: warn
+    pattern: "*"
+    action_type: ROLLING_RESTART
+    target_service: "{service}"
+    parameters:
+      reason: "memory spike"
     cooldown_sec: 300

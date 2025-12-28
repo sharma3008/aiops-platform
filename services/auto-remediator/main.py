@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 
 from kafka import KafkaConsumer, KafkaProducer
 
-from rules import canonicalize_incident, evaluate_rules_with_diagnostics, get_rules_path
+from rules import canonicalize_incident, evaluate_rules_with_diagnostics
 
 BROKER = os.getenv("KAFKA_BROKER", "kafka:9092")
 INCIDENT_TOPIC = os.getenv("INCIDENTS_TOPIC", "incidents")
@@ -17,10 +17,8 @@ ACTION_TOPIC = os.getenv("ACTIONS_TOPIC", "actions")
 
 GROUP_ID = os.getenv("KAFKA_GROUP_ID", "auto-remediator")
 
-# Phase-4 env var names (with backward-compatible fallbacks)
-DEDUP_TTL_SEC = int(os.getenv("ACTION_ID_TTL_SEC") or os.getenv("DEDUP_TTL_SEC") or "600")
-DEFAULT_COOLDOWN_SEC = int(os.getenv("ACTION_COOLDOWN_SEC_DEFAULT") or os.getenv("DEFAULT_COOLDOWN_SEC") or "180")
-AUTO_OFFSET_RESET = os.getenv("AUTO_OFFSET_RESET") or os.getenv("KAFKA_AUTO_OFFSET_RESET") or "latest"
+DEDUP_TTL_SEC = int(os.getenv("DEDUP_TTL_SEC", "600"))
+DEFAULT_COOLDOWN_SEC = int(os.getenv("DEFAULT_COOLDOWN_SEC", "180"))
 
 REQUIRE_APPROVAL = os.getenv("REQUIRE_APPROVAL", "false").lower() in ("1", "true", "yes", "y")
 
@@ -122,12 +120,10 @@ def main():
     _install_signal_handlers()
 
     logging.info(
-        "Starting auto-remediator: broker=%s incident_topic=%s action_topic=%s group_id=%s rules_path=%s",
+        "Starting auto-remediator: broker=%s incident_topic=%s action_topic=%s",
         BROKER,
         INCIDENT_TOPIC,
         ACTION_TOPIC,
-        GROUP_ID,
-        get_rules_path(),
     )
 
     dedup = TTLSet(ttl_sec=DEDUP_TTL_SEC)
@@ -138,7 +134,7 @@ def main():
         bootstrap_servers=BROKER,
         group_id=GROUP_ID,
         enable_auto_commit=True,
-        auto_offset_reset=AUTO_OFFSET_RESET,
+        auto_offset_reset=os.getenv("KAFKA_AUTO_OFFSET_RESET", "latest"),
         value_deserializer=lambda v: json.loads(v.decode("utf-8")) if v else {},
         consumer_timeout_ms=1000,
     )
@@ -159,6 +155,7 @@ def main():
                 incident_id = incident.get("incident_id") or _incident_id(incident)
                 correlation_id = incident.get("correlation_id") or incident_id
 
+                # Log alias normalization when it happens (makes demos/debugging clear).
                 if incident.get("_service_alias_raw") and incident.get("_service_alias_canonical"):
                     logging.info(
                         "Service alias normalized: raw_service=%s canonical_service=%s incident_id=%s",
@@ -186,17 +183,24 @@ def main():
                     target_service = a.get("target_service") or incident.get("service") or "unknown"
                     params = a.get("parameters") or {}
 
+                    # Apply templating if needed (supports "{service}" placeholder)
+                    if isinstance(target_service, str):
+                        target_service = target_service.format(service=incident.get("service", "unknown"))
+
+                    # Determine cooldown
                     cooldown_sec = int(a.get("cooldown_sec", DEFAULT_COOLDOWN_SEC))
                     if cooldowns.is_active(rule_id, target_service, now):
                         logging.info(
-                            "Cooldown active (rule=%s target=%s cd=%ss); skipping",
+                            "Cooldown active (rule=%s target=%s cd=%ss); skipping action_id=%s",
                             rule_id,
                             target_service,
                             cooldown_sec,
+                            _action_id(incident_id, rule_id, action_type, target_service, params),
                         )
                         continue
 
                     action_id = _action_id(incident_id, rule_id, action_type, target_service, params)
+
                     if dedup.contains(action_id, now):
                         logging.info("Skipping duplicate action_id=%s", action_id)
                         continue
@@ -210,6 +214,9 @@ def main():
                         "severity": "warn",
                         "action_id": action_id,
                         "correlation_id": correlation_id,
+	                        # Propagate identifiers for runbooks / observability.
+	                        "test_id": incident.get("test_id"),
+	                        "trace_id": incident.get("trace_id"),
                         "incident_id": incident_id,
                         "rule_id": rule_id,
                         "status": status,
