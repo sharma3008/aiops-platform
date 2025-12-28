@@ -283,5 +283,5 @@ It is designed for **learning, demos, interviews, and further production hardeni
 
 ---
 
-## ⭐ Tip for Reviewers
+## Tip for Reviewers
 Run `./runbook.sh`, open Grafana, and watch the entire AIOps lifecycle in real time.
