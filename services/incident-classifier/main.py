@@ -42,6 +42,7 @@ def start_classifier() -> None:
                     LOGS_TOPIC,
                     ML_TOPIC,
                     bootstrap_servers=BROKER,
+                    group_id=os.getenv("KAFKA_GROUP_ID", "incident-classifier"),
                     auto_offset_reset=os.getenv("AUTO_OFFSET_RESET", "latest"),
                     enable_auto_commit=True,
                     value_deserializer=lambda v: json.loads(v.decode("utf-8")),
